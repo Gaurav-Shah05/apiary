@@ -182,5 +182,6 @@ Weights sha256 (first 16 hex): {json.dumps(sha)}. Full per-10-step training log:
     shutil.copyfile(run_dir / "metrics.jsonl", export_dir / "metrics.jsonl")
     api = HfApi()
     api.create_repo(repo_id, exist_ok=True, private=False)
-    api.upload_folder(folder_path=str(export_dir), repo_id=repo_id, ignore_patterns=["parity.pt", "lm_eval/*", "results.json"])
+    api.upload_folder(folder_path=str(export_dir), repo_id=repo_id,
+                      allow_patterns=["*.safetensors", "model.safetensors.index.json", "config.json", *TOKENIZER_FILES, "README.md", "loss_curve.png", "metrics.jsonl"])
     return f"https://huggingface.co/{repo_id}"
