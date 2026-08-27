@@ -3,8 +3,8 @@ import json
 import os
 import shutil
 import statistics
+import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
 
@@ -37,15 +37,14 @@ class AppState(Stateful):
 
 
 class Checkpointer:
-    """Async DCP saves to fast local disk (<local>/step_N), then a background upload of each finished checkpoint to the
-    volume (<run_dir>/step_N + latest.txt) — volume writes are ~100 MB/s per writer, far too slow to block training on."""
+    """Async DCP saves to fast local disk (<local>/step_N); each finished checkpoint is then copied to the volume
+    (<run_dir>/step_N + latest.txt) by `cp` subprocesses so the upload never competes with the training process."""
 
     def __init__(self, app: AppState, run_dir: Path, local_dir: Path, rank: int, keep: int):
         self.app, self.run_dir, self.local, self.rank, self.keep = app, run_dir, local_dir, rank, keep
         self.local.mkdir(parents=True, exist_ok=True)
         self.pg = dist.new_group(backend="gloo") if dist.get_world_size() > 1 else None
-        self.pending, self.upload, self.newest = None, None, None
-        self.pool = ThreadPoolExecutor(1)  # serial uploads; stale ones are skipped
+        self.pending, self.newest, self.uploading, self.procs = None, None, None, []
 
     def save(self, step: int, sync: bool = False):
         self.finalize()
@@ -53,6 +52,12 @@ class Checkpointer:
         self.pending = (dcp.async_save({"app": self.app}, checkpoint_id=str(tmp), process_group=self.pg), tmp)
         if sync:
             self.finalize()
+
+    def poll(self):
+        """Call every step: finish a completed save and advance uploads without blocking."""
+        if self.pending is not None and self.pending[0].done():
+            self.finalize()
+        self._advance_upload()
 
     def finalize(self):
         if self.pending is None:
@@ -67,32 +72,39 @@ class Checkpointer:
         for old in sorted(self.local.glob("step_[0-9]*"))[: -self.keep]:
             shutil.rmtree(old, ignore_errors=True)
         self.newest = final
-        self.upload = self.pool.submit(self._upload, final)
+        self._advance_upload()
 
-    def _upload(self, src: Path):
-        if src != self.newest:  # a newer checkpoint is already queued
+    def _advance_upload(self):
+        if self.rank != 0:
             return
-        t = time.time()
-        dst_tmp = self.run_dir / (src.name + ".tmp")
-        shutil.rmtree(dst_tmp, ignore_errors=True)
-        dst_tmp.mkdir(parents=True)
-        files = [f for f in src.iterdir() if f.is_file()]
-        with ThreadPoolExecutor(8) as ex:
-            list(ex.map(lambda f: shutil.copyfile(f, dst_tmp / f.name), files))
-        os.rename(dst_tmp, self.run_dir / src.name)
-        (self.run_dir / "latest.txt").write_text(src.name)
-        for old in sorted(self.run_dir.glob("step_[0-9]*"))[: -self.keep]:
-            if old.suffix != ".tmp":
-                shutil.rmtree(old, ignore_errors=True)
-        gb = sum(f.stat().st_size for f in files) / 2**30
-        print(f"uploaded {src.name}: {gb:.1f} GB in {time.time() - t:.0f}s", flush=True)
+        if self.uploading is not None:
+            if any(p.poll() is None for p in self.procs):
+                return
+            src, t = self.uploading
+            ok = all(p.returncode == 0 for p in self.procs)
+            self.uploading, self.procs = None, []
+            if ok:
+                os.rename(self.run_dir / (src.name + ".tmp"), self.run_dir / src.name)
+                (self.run_dir / "latest.txt").write_text(src.name)
+                for old in sorted(self.run_dir.glob("step_[0-9]*"))[: -self.keep]:
+                    if old.suffix != ".tmp":
+                        shutil.rmtree(old, ignore_errors=True)
+                gb = sum(f.stat().st_size for f in src.iterdir()) / 2**30
+                print(f"uploaded {src.name}: {gb:.1f} GB in {time.time() - t:.0f}s", flush=True)
+            else:
+                print(f"upload of {src.name} failed", flush=True)
+        if self.newest is not None and self.newest.exists() and not (self.run_dir / self.newest.name).exists():
+            dst = self.run_dir / (self.newest.name + ".tmp")
+            shutil.rmtree(dst, ignore_errors=True)
+            dst.mkdir(parents=True)
+            self.procs = [subprocess.Popen(["cp", str(f), str(dst / f.name)]) for f in self.newest.iterdir() if f.is_file()]
+            self.uploading = (self.newest, time.time())
 
     def wait_upload(self, timeout: float):
-        if self.rank == 0 and self.upload is not None:
-            try:
-                self.upload.result(timeout=timeout)
-            except Exception as e:  # timeout: the previous uploaded checkpoint stays valid
-                print(f"upload not finished: {e}", flush=True)
+        t = time.time()
+        while self.rank == 0 and (self.uploading is not None or self.pending is not None) and time.time() - t < timeout:
+            self.poll()
+            time.sleep(5)
 
     def load_latest(self) -> bool:
         latest = self.run_dir / "latest.txt"
@@ -218,6 +230,7 @@ def main(argv=None):
         state["step"] += 1
         state["tokens"] += tokens_per_step
         log_tokens += tokens_per_step
+        ckpt.poll()
 
         if step % tcfg.log_every == 0 or step < 5:
             if cuda:
