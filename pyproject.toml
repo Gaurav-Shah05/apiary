@@ -1,0 +1,12 @@
+[project]
+name = "apiary"
+version = "0.1.0"
+description = "A hive of 64 experts: from-scratch MoE pretraining on one 8xB200 Modal node in pure PyTorch (FSDP2 + torch.compile + grouped GEMM)"
+requires-python = ">=3.12"
+dependencies = ["torch>=2.13", "numpy", "safetensors", "tokenizers", "huggingface_hub[hf_transfer]", "modal"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pyarrow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
