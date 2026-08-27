@@ -1,4 +1,4 @@
-"""torchrun entry: FSDP2 + torch.compile pretraining with a node-time budget, async DCP checkpoints and HF export."""
+"""torchrun entry: FSDP2 + torch.compile pretraining on a wall-clock schedule, async DCP checkpoints and HF export."""
 import json
 import os
 import shutil

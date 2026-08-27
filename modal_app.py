@@ -59,7 +59,7 @@ def _stage_tokens(src: str, dst: str):
 
 
 def _run_torchrun(argv: list[str], nproc: int) -> dict:
-    """Launch train.py under torchrun with a watchdog that enforces the node-time budget and commits the volume."""
+    """Launch train.py under torchrun; commit the volume periodically and stop torchrun once the run's time is up."""
     import configs
     t0 = time.time()
     _, tcfg = configs.parse_args(argv)
@@ -68,19 +68,19 @@ def _run_torchrun(argv: list[str], nproc: int) -> dict:
     used0 = 0.0
     if tcfg.resume == "auto" and (run_dir / "budget.json").exists():
         used0 = json.loads((run_dir / "budget.json").read_text())["used_min"]
-    deadline = t0 + 60 * (tcfg.time_budget_min + 10 - used0)
+    t_end = t0 + 60 * (tcfg.time_budget_min + 10 - used0)
     env = os.environ | dict(OMP_NUM_THREADS="4", NCCL_DEBUG="WARN", NCCL_IB_DISABLE="1", TORCH_NCCL_ASYNC_ERROR_HANDLING="1",
                             PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True", TORCHINDUCTOR_CACHE_DIR="/local/inductor")
     cmd = ["torchrun", "--standalone", f"--nproc-per-node={nproc}", "-m", "train", *argv, f"--t0={t0}"]
-    print("launch:", " ".join(cmd), f"| used0={used0:.1f}min deadline_in={(deadline - t0) / 60:.0f}min", flush=True)
+    print("launch:", " ".join(cmd), f"| used0={used0:.1f}min ends_in={(t_end - t0) / 60:.0f}min", flush=True)
     p = subprocess.Popen(cmd, env=env | {"PYTHONPATH": "/root"}, cwd="/root", start_new_session=True)
     last_commit = time.time()
     while p.poll() is None:
         time.sleep(15)
-        if time.time() > deadline:
+        if time.time() > t_end:
             os.killpg(p.pid, signal.SIGKILL)
             ckpt_vol.commit()
-            raise TimeoutError("watchdog: node-time budget exhausted, killed torchrun")
+            raise TimeoutError("torchrun exceeded the run's time limit and was killed")
         if time.time() - last_commit > 60:
             ckpt_vol.commit()
             last_commit = time.time()

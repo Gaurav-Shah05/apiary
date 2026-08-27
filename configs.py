@@ -60,9 +60,9 @@ class TrainCfg:
     weight_decay: float = 0.1
     grad_clip: float = 1.0
     warmup_steps: int = 500
-    decay_frac: float = 0.2            # last 20% of the time budget decays linearly to min_lr
-    time_budget_min: float = 320.0     # node-minutes for the whole run, across restarts (watchdog kills at +10)
-    final_reserve_min: float = 8.0     # stop training this many minutes before budget for save+export
+    decay_frac: float = 0.2            # last 20% of the run decays linearly to min_lr
+    time_budget_min: float = 320.0     # wall-clock length of the run in minutes (carried across restarts)
+    final_reserve_min: float = 8.0     # stop training this many minutes early for the final save + export
     ckpt_every_min: float = 20.0
     keep_ckpts: int = 2
     max_steps: int = 0                 # 0 = unlimited (smoke tests set this)
