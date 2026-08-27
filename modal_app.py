@@ -3,6 +3,7 @@ Usage:  modal run modal_app.py --stage tokenize --n-files 20
         modal run modal_app.py --stage smoke --args "--preset smoke"      # H200:2, ~30 min
         modal run --detach modal_app.py --stage train --args "--time-budget-min 320"
         modal run modal_app.py --stage evaluate --args "/ckpt/main/export"
+        modal run modal_app.py --stage publish --args "/ckpt/main/export user/model https://github.com/user/repo"
 """
 import json
 import os
@@ -29,7 +30,7 @@ base = (
     .env({"PYTHONUNBUFFERED": "1", "HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 train_image = base.add_local_python_source(*MODULES)
-eval_image = base.uv_pip_install("lm_eval", "transformers>=5.0", "accelerate").add_local_python_source(*MODULES)
+eval_image = base.uv_pip_install("lm_eval", "transformers>=5.0", "accelerate", "matplotlib").add_local_python_source(*MODULES)
 tok_image = (
     modal.Image.debian_slim(python_version="3.12")
     .uv_pip_install("numpy", "pyarrow", "tokenizers", "huggingface_hub[hf_transfer]")
@@ -101,19 +102,28 @@ def train(argv: list[str]) -> dict:
     return _run_torchrun(argv, nproc=8)
 
 
-@app.function(image=eval_image, gpu="H100", cpu=8, memory=65536, timeout=3600, volumes={"/ckpt": ckpt_vol})
-def evaluate(export_dir: str, tasks: str = "hellaswag,arc_easy,arc_challenge,piqa", fewshot: int = 0) -> dict:
+HF_SECRET = [modal.Secret.from_name("huggingface")]
+
+
+@app.function(image=eval_image, gpu="H100", cpu=8, memory=65536, timeout=3600, volumes=VOLS, secrets=HF_SECRET)
+def evaluate(export_dir: str, tasks: str = "hellaswag,arc_easy,arc_challenge,piqa,winogrande,wikitext,mmlu", fewshot: int = 0) -> dict:
     import export
-    parity = export.parity(export_dir)
-    print("parity:", parity, flush=True)
-    out = Path(export_dir) / f"eval_{tasks.split(',')[0]}"
+    res = {"parity": export.parity(export_dir), "heldout": export.heldout_loss(export_dir, "/data/tokens")}
+    print(res, flush=True)
+    out = Path(export_dir) / "lm_eval"
     subprocess.run(["lm_eval", "--model", "hf", "--model_args", f"pretrained={export_dir},dtype=bfloat16", "--tasks", tasks,
                     "--num_fewshot", str(fewshot), "--batch_size", "auto", "--output_path", str(out)], check=True)
-    ckpt_vol.commit()
-    results = {}
     for f in out.rglob("results_*.json"):
-        results = {t: {k: v for k, v in r.items() if "acc" in k} for t, r in json.loads(f.read_text())["results"].items()}
-    return {"parity": parity, "results": results}
+        res["lm_eval"] = {t: {k: v for k, v in r.items() if "acc" in k or "perplexity" in k} for t, r in json.loads(f.read_text())["results"].items()}
+    (Path(export_dir) / "results.json").write_text(json.dumps(res, indent=1))
+    ckpt_vol.commit()
+    return res
+
+
+@app.function(image=eval_image, cpu=8, memory=32768, timeout=3600, volumes={"/ckpt": ckpt_vol}, secrets=HF_SECRET)
+def publish(export_dir: str, repo_id: str, code_url: str) -> str:
+    import export
+    return export.publish(export_dir, repo_id, code_url)
 
 
 @app.local_entrypoint()
@@ -135,5 +145,7 @@ def main(stage: str = "train", args: str = "", n_files: int = 20):
         print(json.dumps(train.remote(argv), indent=1))
     elif stage == "evaluate":
         print(json.dumps(evaluate.remote(*argv), indent=1))
+    elif stage == "publish":
+        print(publish.remote(*argv))
     else:
         raise SystemExit(f"unknown stage {stage}")
