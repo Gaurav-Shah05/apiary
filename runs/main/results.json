@@ -1,0 +1,70 @@
+{
+ "parity": {
+  "max_abs": 2.797119140625,
+  "mean_abs": 0.07674743980169296,
+  "argmax_agree": 0.90625,
+  "ref_argmax_topk_in": 1.0
+ },
+ "heldout": {
+  "shard": "001_00009.bin",
+  "tokens": 262144,
+  "loss": 2.462090566754341,
+  "ppl": 11.7293062210083
+ },
+ "lm_eval": {
+  "hellaswag": {
+   "acc,none": 0.388070105556662,
+   "acc_stderr,none": 0.004863147544177631,
+   "acc_norm,none": 0.48755228042222665,
+   "acc_norm_stderr,none": 0.004988234881206774
+  },
+  "arc_easy": {
+   "acc,none": 0.6666666666666666,
+   "acc_stderr,none": 0.009673016668133489,
+   "acc_norm,none": 0.5963804713804713,
+   "acc_norm_stderr,none": 0.010067368960348095
+  },
+  "arc_challenge": {
+   "acc,none": 0.3054607508532423,
+   "acc_stderr,none": 0.013460080478002684,
+   "acc_norm,none": 0.33361774744027306,
+   "acc_norm_stderr,none": 0.013778687054176652
+  },
+  "piqa": {
+   "acc,none": 0.7110990206746464,
+   "acc_stderr,none": 0.010575111841365037,
+   "acc_norm,none": 0.7094668117519043,
+   "acc_norm_stderr,none": 0.010592765034696548
+  },
+  "winogrande": {
+   "acc,none": 0.5248618784530387,
+   "acc_stderr,none": 0.01403510288362781
+  },
+  "wikitext": {
+   "word_perplexity,none": 19.21151763033854,
+   "word_perplexity_stderr,none": "N/A",
+   "byte_perplexity,none": 1.737930676784805,
+   "byte_perplexity_stderr,none": "N/A"
+  },
+  "mmlu_stem": {
+   "acc,none": 0.2559467174119886,
+   "acc_stderr,none": 0.007772953490296452
+  },
+  "mmlu_other": {
+   "acc,none": 0.2536208561313164,
+   "acc_stderr,none": 0.007799172183202702
+  },
+  "mmlu_social_sciences": {
+   "acc,none": 0.24666883327916803,
+   "acc_stderr,none": 0.0077765857841690005
+  },
+  "mmlu_humanities": {
+   "acc,none": 0.2605738575982997,
+   "acc_stderr,none": 0.006396733014665374
+  },
+  "mmlu": {
+   "acc,none": 0.2549494374020795,
+   "acc_stderr,none": 0.003677223825217915
+  }
+ }
+}

@@ -25,4 +25,20 @@ pytest tests/                                                                   
 ```
 
 ## Results
-_(filled in after the run)_
+
+Final model: **9.84B tokens**, train CE **2.465** / held-out CE **2.462** (ppl 11.7),
+**314 B200 node-minutes** (41.9 GPU-hours), median **612k tok/s / 28.3% MFU** on 8xB200.
+Weights + card: [DruidTheGetafix/apiary-7B-A1B](https://huggingface.co/DruidTheGetafix/apiary-7B-A1B).
+
+lm-eval-harness, 0-shot (acc_norm where the task defines it):
+
+| HellaSwag | ARC-easy | ARC-challenge | PIQA | Winogrande | MMLU | wikitext word-ppl |
+|---|---|---|---|---|---|---|
+| 48.8 | 59.6 | 33.4 | 70.9 | 52.5 | 25.5 | 19.2 |
+
+A coherent GPT-2-XL / Pythia-1B-class base model — competitive with that class on ARC and PIQA,
+MMLU at chance as expected for a ~10B-token run. Full per-10-step training log, loss curve and
+eval output are in [`runs/main/`](runs/main). The exact training code is tagged
+[`run-main`](../../releases/tag/run-main).
+
+![loss curve](runs/main/loss_curve.png)
